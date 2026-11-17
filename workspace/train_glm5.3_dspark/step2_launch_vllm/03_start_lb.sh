@@ -20,7 +20,7 @@ if curl -sf --max-time 3 "http://${LB_IP}:${LB_PORT}/v1/models" >/dev/null 2>&1;
     echo "LB already running on ${LB_IP}:${LB_PORT}"
 else
     remote "$LB_IP" "docker exec -d $CONTAINER_NAME bash -c \
-        'nohup python3 $BASE_DIR/openresty.py $BACKENDS --port $LB_PORT --max-inflight-requests 8 >> $LOG_DIR/openresty.log 2>&1'" 2>/dev/null
+        'nohup python3 $BASE_DIR/openresty.py $BACKENDS --port $LB_PORT --max-inflight-batches 4 >> $LOG_DIR/openresty.log 2>&1'" 2>/dev/null
     sleep 2
 fi
 

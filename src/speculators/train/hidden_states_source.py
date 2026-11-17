@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 import warnings
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -213,15 +214,23 @@ class VllmHiddenStatesSource:
         self,
         records: Sequence[DatasetRecord],
     ) -> list[HiddenStateResult]:
-        """Run one independent worker for each record in the batch."""
+        """Run one independent worker for each record in the batch.
+
+        All requests of one batch share an ``X-Batch-Id`` header so a
+        batch-affinity load balancer can pin them to the same vLLM instance
+        (the pack budget matches vLLM's ``max_num_batched_tokens``, letting
+        the scheduler co-batch them into a single engine step).
+        """
         if self.client is None or self._transfer_executor is None:
             raise RuntimeError("Hidden-state source was not set up")
+        batch_headers = {"X-Batch-Id": uuid.uuid4().hex}
         tasks = [
             asyncio.create_task(
                 self._worker(
                     self.client,
                     record,
                     self._transfer_executor,
+                    batch_headers,
                 )
             )
             for record in records
@@ -244,6 +253,7 @@ class VllmHiddenStatesSource:
         client: openai.AsyncOpenAI,
         record: DatasetRecord,
         transfer_executor: ThreadPoolExecutor,
+        batch_headers: dict[str, str],
     ) -> HiddenStateResult:
         """Generate, transfer, and validate one sample with recovery."""
         description = (
@@ -257,6 +267,7 @@ class VllmHiddenStatesSource:
                 build_client_item(record),
                 timeout=self.request_timeout,
                 max_retries=self.max_retries,
+                extra_headers=batch_headers,
             )
             receipt = GenerationReceipt(handle, transfer_params)
             future = transfer_executor.submit(self._load_generated, record, receipt)
