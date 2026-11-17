@@ -9,6 +9,11 @@ if TYPE_CHECKING:
 import os
 
 import torch
+
+# Use file_system sharing to avoid /dev/shm exhaustion (64GB limit in
+# Docker). Must be set at module import time so both the main process
+# and spawned DataLoader workers pick it up.
+torch.multiprocessing.set_sharing_strategy("file_system")
 from torch.utils.data import DataLoader
 
 from hs_connectors import FileTransfer, HiddenStatesTransfer
@@ -49,8 +54,18 @@ def _limit_worker_threads() -> None:
     os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 
+
+def _configure_sharing_strategy() -> None:
+    """Use file_system sharing to avoid /dev/shm exhaustion."""
+    import torch.multiprocessing
+    torch.multiprocessing.set_sharing_strategy("file_system")
+
 def _worker_init_fn(worker_id: int) -> None:  # noqa: ARG001
     torch.set_num_threads(1)
+    # Must be set inside each spawned worker process: spawn does not
+    # inherit the parent's sharing strategy, and the default
+    # file_descriptor strategy exhausts /dev/shm (64GB in Docker).
+    torch.multiprocessing.set_sharing_strategy("file_system")
 
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     if torch.accelerator.is_available():
@@ -125,6 +140,7 @@ def create_train_val_loaders(
     validated on the same packed batches.
     """
     _limit_worker_threads()
+    _configure_sharing_strategy()
 
     if not (0.0 < train_data_ratio < 1.0):
         raise ValueError(f"train_data_ratio must be in (0, 1), got {train_data_ratio}")

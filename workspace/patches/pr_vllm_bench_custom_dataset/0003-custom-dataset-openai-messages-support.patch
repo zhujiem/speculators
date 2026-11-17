@@ -1,0 +1,166 @@
+diff --git a/vllm/benchmarks/datasets/datasets.py b/vllm/benchmarks/datasets/datasets.py
+index 3ca9fd6..e346397 100644
+--- a/vllm/benchmarks/datasets/datasets.py
++++ b/vllm/benchmarks/datasets/datasets.py
+@@ -2502,6 +2502,21 @@ def get_samples(
+ # -----------------------------------------------------------------------------
+ 
+ 
++def _parse_tool_call(tool_call: dict) -> dict:
++    """Copy a tool call, parsing JSON-string arguments to a dict."""
++    tc = dict(tool_call)
++    fn = tc.get("function")
++    if isinstance(fn, dict):
++        fn = dict(fn)
++        if isinstance(fn.get("arguments"), str):
++            try:
++                fn["arguments"] = json.loads(fn["arguments"])
++            except Exception:
++                pass
++        tc["function"] = fn
++    return tc
++
++
+ class CustomDataset(BenchmarkDataset):
+     """
+     Implements the Custom dataset.  Loads data from a JSONL file and generates
+@@ -2532,18 +2547,25 @@ class CustomDataset(BenchmarkDataset):
+ 
+         # Load the JSONL file
+         if self.dataset_path.endswith(".jsonl"):
+-            jsonl_data = pd.read_json(path_or_buf=self.dataset_path, lines=True)
+-
+-            # check if the JSONL file has a 'prompt' column
+-            if "prompt" not in jsonl_data.columns:
+-                raise ValueError("JSONL file must contain a 'prompt' column.")
+-
+-            # Convert each row to a dictionary and append to self.data
+-            # This will convert the DataFrame to a list of dictionaries
+-            # where each dictionary corresponds to a row in the DataFrame.
+-            # This is the standardized format we want for self.data
+-            for _, row in jsonl_data.iterrows():
+-                self.data.append(row.to_dict())
++            # Parse with json instead of pandas: read_json mangles nested
++            # lists of dicts (e.g. `messages`, `tools`) in OpenAI-shaped rows.
++            columns: set[str] = set()
++            with open(self.dataset_path, encoding="utf-8") as f:
++                for line in f:
++                    line = line.strip()
++                    if not line:
++                        continue
++                    item = json.loads(line)
++                    self.data.append(item)
++                    columns.update(item.keys())
++
++            # check if the JSONL file has a 'prompt' or 'messages' column
++            if "prompt" not in columns and "messages" not in columns:
++                raise ValueError(
++                    "JSONL file must contain a 'prompt' column (plain text) "
++                    "or a 'messages' column (OpenAI chat message dicts, "
++                    "with optional 'tools'/'tool_choice' columns)."
++                )
+         else:
+             raise NotImplementedError(
+                 "Only JSONL format is supported for CustomDataset."
+@@ -2581,7 +2603,13 @@ class CustomDataset(BenchmarkDataset):
+         for i, item in enumerate(self.data):
+             if len(sampled_requests) >= num_requests:
+                 break
+-            prompt = item["prompt"]
++            prompt = item["prompt"] if isinstance(item.get("prompt"), str) else None
++            messages = item.get("messages")
++            if prompt is None and messages is None:
++                raise ValueError(
++                    f"Row {i} in the custom dataset must contain either a "
++                    f"'prompt' string or a 'messages' list."
++                )
+ 
+             if tokenizer is None:
+                 new_output_len = 1
+@@ -2603,8 +2631,77 @@ class CustomDataset(BenchmarkDataset):
+             else:
+                 new_output_len = output_len
+ 
++            tools = item.get("tools") if messages is not None else None
++            overrides: dict | None = None
++            if tools:
++                overrides = {"tools": tools}
++                tc = item.get("tool_choice")
++                overrides["tool_choice"] = (
++                    tc if tc in ("auto", "required") or isinstance(tc, dict)
++                    else "auto"
++                )
++            # Optional per-row sampling params; per-request wins at dispatch.
++            for skey in ("temperature", "top_p", "reasoning_effort"):
++                if item.get(skey) is not None:
++                    if overrides is None:
++                        overrides = {}
++                    overrides[skey] = item[skey]
++
+             if tokenizer is None:
+                 prompt_len = 1
++                if messages is not None:
++                    prompt = ""
++            elif messages is not None:
++                # Render messages (with tools) for a length estimate,
++                # mirroring the server: tool_call arguments are JSON
++                # strings on the wire and parsed to dicts before render.
++                # Copies only — the request keeps the original messages.
++                est_messages = [dict(m) if isinstance(m, dict) else m
++                                for m in messages]
++                for m in est_messages:
++                    if not (isinstance(m, dict)
++                            and isinstance(m.get("tool_calls"), list)):
++                        continue
++                    m["tool_calls"] = [
++                        _parse_tool_call(tc) if isinstance(tc, dict) else tc
++                        for tc in m["tool_calls"]
++                    ]
++                # Match the server render (GLM templates emit a
++                # reasoning-effort system line).
++                est_kwargs = dict(chat_template_kwargs or {})
++                if item.get("reasoning_effort") is not None:
++                    est_kwargs["reasoning_effort"] = item["reasoning_effort"]
++                rendered = None
++                try:
++                    rendered = tokenizer.apply_chat_template(
++                        est_messages,
++                        tools=tools or None,
++                        add_generation_prompt=True,
++                        tokenize=False,
++                        **est_kwargs,
++                    )
++                except TypeError:
++                    # Older templates reject the tools kwarg; render without.
++                    rendered = tokenizer.apply_chat_template(
++                        est_messages,
++                        add_generation_prompt=True,
++                        tokenize=False,
++                        **est_kwargs,
++                    )
++                except Exception as e:
++                    logger.warning(
++                        "custom dataset: apply_chat_template failed for "
++                        "row %s, falling back to plain-text length: %s",
++                        i,
++                        e,
++                    )
++                if isinstance(rendered, str):
++                    prompt = rendered
++                else:
++                    prompt = "\n".join(
++                        str(m.get("content", "")) for m in messages
++                    )
++                prompt_len = len(tokenizer(prompt).input_ids)
+             else:
+                 # apply template
+                 if not skip_chat_template:
+@@ -2622,6 +2719,8 @@ class CustomDataset(BenchmarkDataset):
+                     prompt_len=prompt_len,
+                     expected_output_len=new_output_len,
+                     request_id=request_id_prefix + str(i),
++                    chat_messages=messages,
++                    request_overrides=overrides,
+                 )
+             )
+         self.maybe_oversample_requests(

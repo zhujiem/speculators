@@ -235,23 +235,37 @@ class MooncakeHiddenStatesStore:
 
         for name, spec in tensor_spec.items():
             tensor = tensors[name]
-            expected_shape = tuple(spec["shape"])
-            if tuple(tensor.shape) != expected_shape:
-                raise MooncakeIntegrityError(
-                    f"Producer tensor {name!r} shape {tuple(tensor.shape)} does not "
-                    f"match manifest shape {expected_shape}"
-                )
-
             expected_dtype = _parse_dtype(
                 transfer_manifest["handle"], name, spec["dtype"]
             )
-            if tensor.dtype != expected_dtype:
-                raise MooncakeIntegrityError(
-                    f"Producer tensor {name!r} dtype {tensor.dtype} does not "
-                    f"match manifest dtype {expected_dtype}"
+            if isinstance(tensor, list):
+                # Chunked device tensor (payload-size fix): gathered in token
+                # slices by the connector; validated by total byte size.
+                if not tensor:
+                    raise MooncakeIntegrityError(
+                        f"Producer tensor {name!r} chunk list is empty"
+                    )
+                if tensor[0].dtype != expected_dtype:
+                    raise MooncakeIntegrityError(
+                        f"Producer tensor {name!r} dtype {tensor[0].dtype} does not "
+                        f"match manifest dtype {expected_dtype}"
+                    )
+                actual_nbytes = sum(
+                    c.numel() * c.element_size() for c in tensor
                 )
-
-            actual_nbytes = tensor.numel() * tensor.element_size()
+            else:
+                expected_shape = tuple(spec["shape"])
+                if tuple(tensor.shape) != expected_shape:
+                    raise MooncakeIntegrityError(
+                        f"Producer tensor {name!r} shape {tuple(tensor.shape)} does not "
+                        f"match manifest shape {expected_shape}"
+                    )
+                if tensor.dtype != expected_dtype:
+                    raise MooncakeIntegrityError(
+                        f"Producer tensor {name!r} dtype {tensor.dtype} does not "
+                        f"match manifest dtype {expected_dtype}"
+                    )
+                actual_nbytes = tensor.numel() * tensor.element_size()
             if actual_nbytes != spec["nbytes"]:
                 raise MooncakeIntegrityError(
                     f"Producer tensor {name!r} has {actual_nbytes} bytes, but the "
@@ -264,7 +278,26 @@ class MooncakeHiddenStatesStore:
         for name, spec in tensor_spec.items():
             tensor = tensors[name]
             region = staging[spec["offset"] : spec["offset"] + spec["nbytes"]]
-            region.view(tensor.dtype).view(tensor.shape).copy_(tensor)
+            if isinstance(tensor, list):
+                # Copy each chunk into its slice of the packed region so every
+                # DtoH stays small (a single ~2.4 GB pinned copy hangs AICPU).
+                off = 0
+                step = 8 * 1024 * 1024  # 8M elements, node82-proven DtoH slice
+                for chunk in tensor:
+                    n = chunk.numel() * chunk.element_size()
+                    dst = region[off : off + n].view(chunk.dtype).reshape(-1)
+                    src_flat = chunk.reshape(-1)
+                    for s in range(0, src_flat.numel(), step):
+                        e = min(s + step, src_flat.numel())
+                        dst[s:e].copy_(src_flat[s:e])
+                    off += n
+                if off != spec["nbytes"]:
+                    raise MooncakeIntegrityError(
+                        f"Producer tensor {name!r} chunks covered {off} bytes, "
+                        f"but the manifest reserves {spec['nbytes']}"
+                    )
+            else:
+                region.view(tensor.dtype).view(tensor.shape).copy_(tensor)
 
         handle = transfer_manifest["handle"]
         result = store.put_from(handle, staging.data_ptr(), total_bytes)
