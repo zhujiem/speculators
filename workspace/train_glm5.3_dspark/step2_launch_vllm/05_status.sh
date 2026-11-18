@@ -33,17 +33,22 @@ else
 
 fi
 
-# --- LB inflight status (from openresty.log latest stats line) --------------------
-lb_stats=$(grep "stats " "$LOG_DIR/openresty.log" 2>/dev/null | tail -1)
+# --- LB full stats (from openresty.log) ---
+lb_stats=$(grep "stats " "$LOG_DIR/openresty.log" 2>/dev/null | grep "10.100.1.58:8008" | tail -1)
 if [ -n "$lb_stats" ]; then
-    lb_ts=$(echo "$lb_stats" | awk '{print $1, $2}')
-    lb_inflight=$(echo "$lb_stats" | grep -oE "inflight=\[[^]]*\]" | head -1)
-    lb_sem=$(echo "$lb_stats" | grep -oE "sem_locked=[A-Za-z]+")
-    lb_queue=$(echo "$lb_stats" | grep -oE "queued_total=[0-9]+ queue_timeouts=[0-9]+")
-    echo "  inflight: ${lb_inflight:-?}"
-    echo "  gate: ${lb_sem:-?} | ${lb_queue:-?} | (as of ${lb_ts})"
+    echo "  served:      $(echo "$lb_stats" | grep -oE "[0-9.]+:8008:[0-9]+/[0-9]+" | tr '\n' ' ')"
+    echo "  inflight:    $(echo "$lb_stats" | grep -oE "inflight=\[[^]]*\]")"
+    echo "  inflight_requests: $(echo "$lb_stats" | grep -oE "inflight_requests=[0-9]+")"
+    echo "  inflight_batches:  $(echo "$lb_stats" | grep -oE "inflight_batches=[0-9]+")"
+    echo "  queued_batches:    $(echo "$lb_stats" | grep -oE "queued_batches=[0-9]+")"
+    echo "  sem_locked:  $(echo "$lb_stats" | grep -oE "sem_locked=[A-Za-z]+")"
+    echo "  queued_total: $(echo "$lb_stats" | grep -oE "queued_total=[0-9]+")"
+    echo "  queue_timeouts: $(echo "$lb_stats" | grep -oE "queue_timeouts=[0-9]+")"
+    echo "  affinity_requests: $(echo "$lb_stats" | grep -oE "affinity_requests=[0-9]+")"
+    echo "  batch_routes: $(echo "$lb_stats" | grep -oE "batch_routes=[0-9]+")"
+    echo "  (as of: $(echo "$lb_stats" | awk '{print $1, $2}'))"
 else
-    echo "  inflight: no stats (openresty.log empty)"
+    echo "  no stats available"
 fi
 
 # --- HTTP server ---------------------------------------------------------------

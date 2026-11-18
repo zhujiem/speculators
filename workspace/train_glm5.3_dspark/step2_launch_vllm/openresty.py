@@ -97,6 +97,14 @@ class BatchEntry:
 
 
 ACTIVE_BATCHES: dict[str, BatchEntry] = {}
+
+
+def batch_counts():
+    dispatched = sum(1 for e in ACTIVE_BATCHES.values() if e.slot_acquired)
+    queued = len(ACTIVE_BATCHES) - dispatched
+    return dispatched, queued
+
+
 _SOLO_SEQ = itertools.count()
 
 
@@ -130,8 +138,8 @@ async def acquire_batch_slot(
     if INFLIGHT_SEM.locked():
         STATS["queued_total"] += 1
         log.info(
-            "queueing %s (inflight_batches=%d inflight=%s)",
-            req_desc, len(ACTIVE_BATCHES), inflight_snapshot(),
+            "queueing %s (inflight_batches=%d queued_batches=%d inflight=%s)",
+            req_desc, *batch_counts(), inflight_snapshot(),
         )
     try:
         if leader:
@@ -186,11 +194,10 @@ def pick_least_conn() -> Backend | None:
 def pick_backend(batch_id: str | None) -> tuple[Backend | None, bool]:
     """Select the backend for one request.
 
-    Returns ``(backend, used_affinity)``. With ``batch_id`` the choice is
-    pinned per id (stable hash over the full backend list, so the healthy
-    set changing size never re-shuffles unrelated batches); an unhealthy pin
-    falls back to least_conn so the batch still gets served. Without
-    ``batch_id`` this is plain least_conn.
+    Returns ``(backend, used_affinity)``. With ``batch_id``: an existing
+    affinity route is reused (prefix-cache friendly); a NEW batch is routed
+    via least_conn (load-aware) and the choice is recorded for its
+    subsequent requests. Without ``batch_id`` this is plain least_conn.
     """
     if not batch_id:
         return pick_least_conn(), False
@@ -198,18 +205,18 @@ def pick_backend(batch_id: str | None) -> tuple[Backend | None, bool]:
     candidates = [b for b in BACKENDS if now >= b.fail_until]
     if not candidates:
         return None, False
+    # Old batch: affinity route (recorded in BATCH_ROUTES)
     be = BATCH_ROUTES.get(batch_id)
     if be is not None and now >= be.fail_until:
         return be, True
-    be = BACKENDS[zlib.crc32(batch_id.encode()) % len(BACKENDS)]
-    if now < be.fail_until:
-        be = pick_least_conn()
-        if be is None:
-            return None, False
+    # New batch: least_conn (load-aware) instead of hash
+    be = pick_least_conn()
+    if be is None:
+        return None, False
     if len(BATCH_ROUTES) >= BATCH_ROUTES_MAX:
         BATCH_ROUTES.clear()
     BATCH_ROUTES[batch_id] = be
-    return be, True
+    return be, False
 
 
 def inflight_snapshot() -> str:
@@ -362,7 +369,7 @@ async def stats_loop():
         log.info(
             "stats " + " ".join(f"{b.url.split('//')[1]}:{b.served}/{b.errors}" for b in BACKENDS)
             + f" inflight=[{inflight_snapshot()}] inflight_requests={sum(b.inflight for b in BACKENDS)}"
-            + f" inflight_batches={len(ACTIVE_BATCHES)}"
+            + f" inflight_batches={batch_counts()[0]} queued_batches={batch_counts()[1]}"
             + f" sem_locked={INFLIGHT_SEM.locked()}"
             + f" queued_total={STATS['queued_total']} queue_timeouts={STATS['queue_timeouts']}"
             + f" affinity_requests={STATS['affinity_requests']} batch_routes={len(BATCH_ROUTES)}"

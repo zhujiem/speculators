@@ -32,6 +32,24 @@ else
     echo "  http://${LB_IP}:${LB_PORT} DOWN"
 fi
 
+# --- LB full stats (from openresty.log latest stats line) ---
+lb_stats=$(grep "stats " "/mnt/cephfs/hw/zhujieming/spectrain/step2_launch_vllm_2nodes_http/logs/openresty.log" 2>/dev/null | grep "10.100.1.58:8008" | tail -1)
+if [ -n "$lb_stats" ]; then
+    echo "  served:      $(echo "$lb_stats" | grep -oE "[0-9.]+:8008:[0-9]+/[0-9]+" | tr '\n' ' ')"
+    echo "  inflight:    $(echo "$lb_stats" | grep -oE "inflight=\[[^]]*\]")"
+    echo "  inflight_requests: $(echo "$lb_stats" | grep -oE "inflight_requests=[0-9]+")"
+    echo "  inflight_batches:  $(echo "$lb_stats" | grep -oE "inflight_batches=[0-9]+")"
+    echo "  queued_batches:    $(echo "$lb_stats" | grep -oE "queued_batches=[0-9]+")"
+    echo "  sem_locked:  $(echo "$lb_stats" | grep -oE "sem_locked=[A-Za-z]+")"
+    echo "  queued_total: $(echo "$lb_stats" | grep -oE "queued_total=[0-9]+")"
+    echo "  queue_timeouts: $(echo "$lb_stats" | grep -oE "queue_timeouts=[0-9]+")"
+    echo "  affinity_requests: $(echo "$lb_stats" | grep -oE "affinity_requests=[0-9]+")"
+    echo "  batch_routes: $(echo "$lb_stats" | grep -oE "batch_routes=[0-9]+")"
+    echo "  (as of: $(echo "$lb_stats" | awk '{print $1, $2}'))"
+else
+    echo "  no stats available"
+fi
+
 # --- HTTP server ---------------------------------------------------------------
 line; echo "[http]"
 if remote "${HTTP_SERVER_IP}" "timeout 2 bash -c '</dev/tcp/${HTTP_SERVER_IP}/${HTTP_SERVER_PORT}'" 2>/dev/null; then
