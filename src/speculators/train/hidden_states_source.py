@@ -157,7 +157,33 @@ class VllmHiddenStatesSource:
             )
         self._is_setup = True
 
-    def _load_generated(
+    def setup(self) -> None:
+        """Public setup so non-DataLoader consumers can prime the client."""
+        self._setup()
+
+    async def generate(
+        self,
+        record: DatasetRecord,
+        extra_headers: dict[str, str] | None = None,
+    ) -> GenerationReceipt:
+        """Send one request and return its receipt without fetching the payload.
+
+        Used by the streaming loader, which decouples request submission from
+        batch assembly; ``load_generated`` completes the round trip.
+        """
+        self._setup()
+        assert self.client is not None
+        handle, transfer_params = await generate_hidden_states_async(
+            self.client,
+            self.model,
+            build_client_item(record),
+            timeout=self.request_timeout,
+            max_retries=self.max_retries,
+            extra_headers=extra_headers,
+        )
+        return GenerationReceipt(handle, transfer_params)
+
+    def load_generated(
         self,
         record: DatasetRecord,
         receipt: GenerationReceipt,
@@ -270,7 +296,7 @@ class VllmHiddenStatesSource:
                 extra_headers=batch_headers,
             )
             receipt = GenerationReceipt(handle, transfer_params)
-            future = transfer_executor.submit(self._load_generated, record, receipt)
+            future = transfer_executor.submit(self.load_generated, record, receipt)
             while not future.done():  # noqa: ASYNC110 - keep request tasks running
                 await asyncio.sleep(0.001)
             return future.result()

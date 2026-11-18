@@ -31,6 +31,7 @@ from speculators.train.hidden_states_source import (
     OfflineHiddenStatesSource,
     VllmHiddenStatesSource,
 )
+from speculators.train.streaming_dataloader import StreamingDataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,9 @@ def create_train_val_loaders(
     max_train_batches: int | None = None,
     seed: int = 0,
     max_transfer_workers: int = 1,
-) -> tuple[DataLoader, DataLoader]:
+    dataloader: Literal["torch", "streaming"] = "torch",
+    max_queued_batches: int = 4,
+) -> tuple[DataLoader | StreamingDataLoader, DataLoader]:
     """Create training and validation DataLoaders.
 
     Non-data SP ranks get lightweight loaders with no workers (they receive
@@ -156,12 +159,14 @@ def create_train_val_loaders(
         split="val",
     )
 
-    # ``on_missing=generate`` is retained as the backwards-compatible switch
-    # for the vLLM source. The other values select offline loading and define
-    # what happens when a cached sample is absent.
+    # ``on_missing=generate`` is the backwards-compatible switch for the
+    # vLLM source; streaming always needs the vLLM source (every sample is
+    # generated at runtime), so it selects it regardless of the failure
+    # policy ``on_missing`` then describes. The other values select offline
+    # loading and define what happens when a cached sample is absent.
     source_transfer = transfer or FileTransfer(train_records.datapath / "hidden_states")
     hidden_states_source: HiddenStatesSource
-    if on_missing == "generate":
+    if on_missing == "generate" or dataloader == "streaming":
         validate_vllm_model(vllm_endpoint, verifier_name_or_path)
         hidden_states_source = VllmHiddenStatesSource(
             transfer=source_transfer,
@@ -198,14 +203,43 @@ def create_train_val_loaders(
         preprocess=preprocess,
     )
 
-    train_loader = _setup_dataloader(
-        train_dataset,
-        total_seq_len,
-        num_workers=num_workers,
-        prefetch_factor=prefetch_factor,
-        max_batches=max_train_batches,
-        seed=seed,
-    )
+    train_loader: DataLoader | StreamingDataLoader
+    if dataloader == "streaming":
+        if not isinstance(hidden_states_source, VllmHiddenStatesSource):
+            raise ValueError(
+                "--dataloader streaming requires the vLLM generation source "
+                "(the online workflow)"
+            )
+        # For the streaming loader every sample is generated at runtime, so
+        # on_missing selects the failure policy (generate = regenerate with
+        # the baseline retry budget and circuit breaker, skip/warn = degrade,
+        # raise = abort) instead of the torch path's data-acquisition mode.
+        train_loader = StreamingDataLoader(
+            train_dataset,
+            hidden_states_source,
+            batch_max_length=total_seq_len,
+            rank=get_dp_rank(),
+            world_size=get_dp_size(),
+            max_queued_batches=max_queued_batches,
+            fetch_workers=max(max_transfer_workers, 1),
+            # The CLI prefetch factor feeds both streaming prefetch
+            # surfaces: outstanding send batches (co-batch gate) and the
+            # assembled-batch yield queue.
+            in_flight_batches=prefetch_factor,
+            yield_queue_depth=prefetch_factor,
+            on_missing=on_missing,
+            seed=seed,
+            max_batches=max_train_batches,
+        )
+    else:
+        train_loader = _setup_dataloader(
+            train_dataset,
+            total_seq_len,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
+            max_batches=max_train_batches,
+            seed=seed,
+        )
     val_loader = _setup_dataloader(
         val_dataset,
         total_seq_len,
