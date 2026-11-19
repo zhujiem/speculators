@@ -37,6 +37,21 @@ echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') Training starts."
 torchrun --standalone \
     --nproc_per_node "$NUM_TRAIN_NPUS" \
     -m speculators.train \
+    --vllm-endpoint "$VLLM_ENDPOINT" \
+    --hidden-states-backend http \
+    --http-endpoint "$HTTP_SERVER" \
+    --http-connection-pool-size 8 \
+    --http-max-chunk-mib 512 \
+    --on-missing generate \
+    --request-timeout 900 \
+    --max-retries 5 \
+    --generation-validation-retries 1 \
+    --max-consecutive-generation-failures 10 \
+    --dataloader streaming \
+    --max-queued-batches 4 \
+    --num-workers 1 \
+    --prefetch-factor 2 \
+    --max-transfer-workers 2 \
     --verifier-name-or-path "$MODEL" \
     --from-pretrained "$RESUME_CKPT" \
     --trust-remote-code \
@@ -62,22 +77,10 @@ torchrun --standalone \
     --scheduler-warmup-steps 100 \
     --weight-decay 0.0 \
     --dflash-decay-gamma 4.0 \
-    --on-missing generate \
-    --request-timeout 900 \
-    --max-retries 5 \
-    --generation-validation-retries 2 \
-    --max-consecutive-generation-failures 16 \
-    --num-workers 1 \
-    --prefetch-factor 3 \
-    --max-transfer-workers 3 \
-    --vllm-endpoint "$VLLM_ENDPOINT" \
-    --hidden-states-backend http \
-    --http-endpoint "$HTTP_SERVER" \
-    --http-connection-pool-size 8 \
-    --http-max-chunk-mib 512 \
-    --save-path "$OUTPUT_DIR/checkpoints2" \
-    --log-dir "$OUTPUT_DIR/logs" \
+    --gradient-checkpointing \
     --checkpoint-freq 0.005 \
+    --save-path "$OUTPUT_DIR/checkpoints" \
+    --log-dir "$OUTPUT_DIR/logs" \
     --log-freq 1 \
     --logger tensorboard &
 
