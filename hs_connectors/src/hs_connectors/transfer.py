@@ -366,7 +366,7 @@ class MooncakeBackend(HiddenStatesBackend):
         _add_argument_if_absent(
             parser,
             "--mooncake-protocol",
-            choices=["tcp", "rdma"],
+            choices=["tcp", "rdma", "ascend"],
             default="tcp",
             help="Mooncake transport protocol. Used with backend=mooncake.",
         )

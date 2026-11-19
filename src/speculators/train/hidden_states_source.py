@@ -137,6 +137,23 @@ class VllmHiddenStatesSource:
             max_consecutive_failures=max_consecutive_generation_failures,
         )
 
+    def __getstate__(self):
+        # AsyncOpenAI client, asyncio Runner, and ThreadPoolExecutor are
+        # process-local; DataLoader workers recreate them via lazy _setup().
+        state = self.__dict__.copy()
+        state["client"] = None
+        state["_runner"] = None
+        state["_transfer_executor"] = None
+        state["_is_setup"] = False
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.client = None
+        self._runner = None
+        self._transfer_executor = None
+        self._is_setup = False
+
     def _setup(self) -> None:
         if self._is_setup:
             return
