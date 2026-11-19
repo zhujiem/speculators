@@ -230,7 +230,6 @@ class DataArgs(_Group):
         "the vLLM source (any on_missing value; there it picks only the "
         "failure policy) and submits requests as maximal-prefix send batches "
         "(X-Batch-Id affinity routed) yielded in completion order.",
-        json_schema_extra=_CLI_CHOICES,
     )
     max_queued_batches: int = Field(
         default=4,
