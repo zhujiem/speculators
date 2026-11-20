@@ -691,8 +691,10 @@ def setup_root_logger(level="INFO"):
 
     # Quiet the per-request INFO logs from httpx (one line per POST to the
     # vLLM endpoint; the streaming loader fires them continuously). Warnings
-    # and errors still surface.
+    # and errors still surface. Some images ship a forked "httpx2" package
+    # whose logger is named "httpx2" -- silence it too.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
 
 
 def setup_metric_logger(loggers, run_name, output_dir):
