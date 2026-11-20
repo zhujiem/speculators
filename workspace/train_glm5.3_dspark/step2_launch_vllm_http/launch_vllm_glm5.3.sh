@@ -69,7 +69,7 @@ exec python "$SPECULATOR_HOME"/scripts/launch_vllm.py "$MODEL" \
        --enable-chunked-prefill \
        --enable-prefix-caching \
        --max-num-batched-tokens 32768 \
-       --max-num-seqs 2 \
+       --max-num-seqs 8 \
        --max-model-len 32769 \
        --gpu-memory-utilization "$GPU_MEM" \
        --quantization ascend \
