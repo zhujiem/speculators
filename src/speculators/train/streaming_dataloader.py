@@ -40,6 +40,8 @@ import logging
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+
+from hs_connectors.device import ensure_thread_context
 from dataclasses import dataclass, field
 from queue import Empty, Full, Queue
 from typing import TYPE_CHECKING, Any
@@ -266,9 +268,23 @@ class StreamingDataLoader:
         try:
             self._pipeline_error = None
             self.source.setup()
+            # Capture the rank's device index in this (main) thread so pool
+            # threads bind the correct NPU context (fresh threads default
+            # to device 0). CANN contexts are thread-local and mooncake's
+            # adxl engine executes fabric transfers in the calling thread.
+            _device_index = None
+            try:
+                import torch
+
+                if torch.accelerator.is_available():
+                    _device_index = torch.accelerator.current_device_index()
+            except Exception:
+                pass
+
             self._fetch_executor = ThreadPoolExecutor(
                 max_workers=self.fetch_workers,
                 thread_name_prefix="speculators-streaming-fetch",
+                initializer=lambda: ensure_thread_context(_device_index),
             )
             self._queue = Queue(maxsize=self.yield_queue_depth)
             self._loop = asyncio.new_event_loop()

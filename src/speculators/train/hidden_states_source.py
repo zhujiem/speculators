@@ -12,6 +12,7 @@ import openai
 import torch
 
 from hs_connectors import HiddenStatesTransfer
+from hs_connectors.device import ensure_thread_context
 from speculators.data_generation.offline import check_hidden_states
 from speculators.data_generation.vllm_client import (
     DEFAULT_MAX_RETRIES,
@@ -168,9 +169,16 @@ class VllmHiddenStatesSource:
         if self._runner is None:
             self._runner = asyncio.Runner()
         if self._transfer_executor is None:
+            _device_index = None
+            try:
+                if torch.accelerator.is_available():
+                    _device_index = torch.accelerator.current_device_index()
+            except Exception:
+                pass
             self._transfer_executor = ThreadPoolExecutor(
                 max_workers=self.max_transfer_workers,
                 thread_name_prefix="speculators-hidden-state-transfer",
+                initializer=lambda: ensure_thread_context(_device_index),
             )
         self._is_setup = True
 

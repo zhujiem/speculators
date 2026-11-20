@@ -40,6 +40,7 @@ from speculators.train.utils import normalize_counted_metrics
 
 root_logger = logging.getLogger("speculators")
 metric_logger = logging.getLogger("speculators.metrics")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # silence per-request HTTP logs
 
 
 def _all_reduce_metrics(metrics: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
