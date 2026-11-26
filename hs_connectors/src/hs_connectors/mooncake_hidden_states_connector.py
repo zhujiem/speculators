@@ -9,6 +9,7 @@ be used with the ``extract_hidden_states`` speculative method.
 
 from __future__ import annotations
 
+import os
 import re
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -48,11 +49,16 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-# Chunking activates for sequences > 8192 tokens; at or below that the
-# original single-op path runs unchanged. Each gather slice is 8192 tokens
-# (8192 * 6 * 6144 * 2B ~= 600 MB), inside the proven-safe envelope.
-_HS_GATHER_CHUNK_THRESHOLD = 8192
-_HS_GATHER_CHUNK_TOKENS = 8192
+# Chunking activates for sequences above the chunk size; at or below that
+# the original single-op path runs unchanged. The gather slice size is
+# configurable via SPECULATORS_HS_GATHER_CHUNK_TOKENS (tokens per slice),
+# defaulting to 16384 (~1.2 GB per slice at 6 layers x 6144 hidden bf16).
+# 16384 has not been validated on Ascend 910b; if AiCPU hangs reappear on
+# large puts, set 8192 (~600 MB, the node82-proven envelope).
+_HS_GATHER_CHUNK_TOKENS = max(
+    1, int(os.environ.get("SPECULATORS_HS_GATHER_CHUNK_TOKENS", "16384"))
+)
+_HS_GATHER_CHUNK_THRESHOLD = _HS_GATHER_CHUNK_TOKENS
 
 
 def sanitize_key(key: str) -> str:

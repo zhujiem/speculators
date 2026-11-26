@@ -246,8 +246,8 @@ class HttpStore:
         """Publish ``tensors`` (possibly on the accelerator) via HTTP PUT.
 
         Accepts either a single tensor or a list of tensor chunks (as
-        produced by the connector's chunked gather for sequences
-        > 8192 tokens); chunks are validated by summed byte coverage.
+        produced by the connector's chunked gather for sequences above
+        the chunk size); chunks are validated by summed byte coverage.
 
         Payloads above ``chunk_threshold_bytes`` are split further and
         uploaded with parallel connections.
