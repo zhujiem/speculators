@@ -1,5 +1,5 @@
 #!/bin/bash
-# train_dspark_glm5.3.sh -- GLM-5.3 训练本体 (由 02_start_training.sh 在 s58 的
+# train_dspark_glm5.3.sh -- GLM-5.3 训练本体 (由 05_start_training.sh 在 s58 的
 # vllm_ascend_v0.30.0 容器内后台运行; 容器内有 torchrun + datasets + http)。
 set -euo pipefail
 
@@ -10,26 +10,24 @@ RESUME_CKPT="/mnt/cephfs/hw/checkpoints/epoch0_step15000_20261110"
 OUTPUT_DIR="/mnt/cephfs/hw/runs/glm5.3_dspark_32k_v1"
 DATA_PATH="/mnt/cephfs/hw/spectrain/data/train_1110_32k_v2"
 VLLM_ENDPOINT="http://${MASTER_IP}:8100/v1"
-HTTP_SERVER="http://${MASTER_IP}:50088"
-TRAIN_DEVICES="0,1,2,3,4,5,6,7"
-NUM_TRAIN_NPUS=8
+MOONCAKE_MASTER="http://${MASTER_IP}:50051"
+TRAIN_DEVICES="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
+NUM_TRAIN_NPUS=16
 
 MASK_TOKEN_ID=154856
 PACK_SEQ_LENGTH=32768
 TARGET_LAYER_IDS="1 20 38 56 75"
 
-# jemalloc: size-class allocator with immediate page return
-# dirty_decay_ms:0 → freed pages returned to OS instantly (RSS drops in real-time)
-export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2
-export MALLOC_CONF=dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true,metadata_thp:auto
-export MALLOC_ARENA_MAX=2
-export MASTER_ADDR=$(hostname -I | awk '{print $1}')
 export TMPDIR="/tmp"
 export TORCHINDUCTOR_CACHE_DIR="${OUTPUT_DIR}/cache/torchinductor"
 export HF_HOME="${OUTPUT_DIR}/cache/hf"
 export HCCL_NPU_SOCKET_PORT_RANGE=26000-27000
 export ASCEND_RT_VISIBLE_DEVICES="$TRAIN_DEVICES"
 export PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:64
+export ASCEND_AUTO_CONNECT=1
+export ASCEND_ENABLE_USE_FABRIC_MEM=1
+export ASCEND_TRANSFER_TIMEOUT=31000
+export MALLOC_ARENA_MAX=2 # avoid OOM
 mkdir -p "$TMPDIR" "$TORCHINDUCTOR_CACHE_DIR" "$HF_HOME"
 
 echo "=== Training starts. ==="
@@ -38,20 +36,22 @@ torchrun --standalone \
     --nproc_per_node "$NUM_TRAIN_NPUS" \
     -m speculators.train \
     --vllm-endpoint "$VLLM_ENDPOINT" \
-    --hidden-states-backend http \
-    --http-endpoint "$HTTP_SERVER" \
-    --http-connection-pool-size 8 \
-    --http-max-chunk-mib 512 \
+    --hidden-states-backend mooncake \
+    --mooncake-master "$MOONCAKE_MASTER" \
+    --mooncake-metadata-server P2PHANDSHAKE \
+    --mooncake-protocol ascend \
+    --mooncake-global-segment-gib 0 \
+    --mooncake-local-buffer-gib 4 \
     --on-missing generate \
     --request-timeout 900 \
     --max-retries 5 \
     --generation-validation-retries 1 \
     --max-consecutive-generation-failures 10 \
     --dataloader streaming \
-    --max-queued-batches 4 \
+    --max-queued-batches 8 \
     --num-workers 1 \
     --prefetch-factor 2 \
-    --max-transfer-workers 2 \
+    --max-transfer-workers 4 \
     --verifier-name-or-path "$MODEL" \
     --from-pretrained "$RESUME_CKPT" \
     --trust-remote-code \

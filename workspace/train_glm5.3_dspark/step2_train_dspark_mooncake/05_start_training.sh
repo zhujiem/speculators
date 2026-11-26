@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 02_start_training.sh -- 在训练容器内后台启动正式训练。
-# 前置: producer 目录 vllm 服务 + LB :8100 已就绪。
-# Usage: bash 02_start_training.sh
+# 05_start_training.sh -- 在训练容器内后台启动正式训练。
+# 前置: 02/03 服务已就绪, 04_smoke 已通过。
+# Usage: bash 05_start_training.sh
 set -uo pipefail
 cd "$(dirname "$0")"
 # shellcheck disable=SC1091
@@ -40,7 +40,7 @@ n=$(train_procs)
 if [ "${n:-0}" -gt 0 ]; then
     echo "OK: ${n} training procs alive"
     echo "log: ${TRAIN_LOG}"
-    echo "watch: train_run tail -f  (or) bash 03_status.sh"
+    echo "watch: train_run tail -f  (or) bash 06_status.sh"
 else
     echo "WARN: no training procs after 15s -- check log tail:" >&2
     train_run "tail -5 '${TRAIN_LOG}'" || true

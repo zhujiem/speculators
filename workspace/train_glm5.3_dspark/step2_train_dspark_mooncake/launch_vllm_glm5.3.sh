@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy_glm5.3.sh -- 单节点 vllm 抽取服务启动器 (由 02_start_vllm.sh 在各推理
+# deploy_glm5.3.sh -- 单节点 vllm 抽取服务启动器 (由 02_start_vllm_instances.sh 在各推理
 # 节点容器内调用; 也可手动: bash deploy_glm5.3.sh <mooncake_master_ip>)
 # usage: bash deploy_glm5.3.sh <node0_ip>
 set -u

@@ -1,7 +1,14 @@
 # dspark http 2-node deployment config
-# Pipeline: 00_free_npus -> 01_start_vllm -> 03_start_lb -> 04_smoke
+# Pipeline: 00_free_npus -> 01_start_http_server -> 02_start_vllm_instances -> 03_start_lb
+#           -> 04_smoke -> 05_start_training -> 06_status / 07_stop_training / 08_stop_all
 
-BASE_DIR="/mnt/cephfs/hw/zhujieming/spectrain/step2_launch_vllm_2nodes_http"
+# --- training (由 05-07 使用; 集群侧按节点填写) ---
+# TRAIN_IP=
+# TRAIN_LOG=
+# OUTPUT_DIR=
+
+# 脚本所在目录 (即 step2_train_dspark_http), 与部署路径解耦
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # --- nodes ---
 CONTAINER_NAME="vllm_ascend_v0.30.0"

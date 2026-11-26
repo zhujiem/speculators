@@ -13,7 +13,7 @@ echo "backends: $BACKENDS"
 # all backends healthy?
 for b in $BACKENDS; do
     curl -sf --max-time 5 "$b/v1/models" >/dev/null \
-        || { echo "backend $b not ready -- run 02_start_vllm.sh first" >&2; exit 1; }
+        || { echo "backend $b not ready -- run 02_start_vllm_instances.sh first" >&2; exit 1; }
 done
 
 if curl -sf --max-time 3 "http://${LB_IP}:${LB_PORT}/v1/models" >/dev/null 2>&1; then

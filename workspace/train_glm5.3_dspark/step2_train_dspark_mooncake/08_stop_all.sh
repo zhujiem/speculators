@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 07_stop_services.sh -- 停止整套部署 (顺序: 训练 -> LB -> vllm 服务)。
+# 08_stop_all.sh -- 停止整套部署 (顺序: 训练 -> LB -> vllm 服务)。
 # HTTP server (s58:9020) 独立运行, 默认保留 (重启 vllm 不影响)。
-# Usage: bash 07_stop_services.sh
+# Usage: bash 08_stop_all.sh
 set -uo pipefail
 cd "$(dirname "$0")"
 # shellcheck disable=SC1091
@@ -11,7 +11,7 @@ echo "=== 1. stop training on ${TRAIN_IP} ==="
 n=$(train_procs)
 if [ "${n:-0}" -gt 0 ]; then
     echo "sending SIGTERM to ${n} procs (graceful checkpoint attempt)..."
-    train_run "pkill -TERM -f 'step3_train_[d]spark'; pkill -TERM -f 'speculators.trai[n]'" || true
+    train_run "pkill -TERM -f 'step[23]_train_[d]spark'; pkill -TERM -f 'speculators.trai[n]'" || true
     # give the graceful path up to 60s (torchrun may escalate sooner)
     for i in $(seq 1 12); do
         sleep 5
@@ -20,7 +20,7 @@ if [ "${n:-0}" -gt 0 ]; then
     done
     if [ "${n:-0}" -gt 0 ]; then
         echo "still ${n} alive -> SIGKILL"
-        train_run "pkill -9 -f 'step3_train_[d]spark'; pkill -9 -f 'speculators.trai[n]'; pkill -9 -f 'torchru[n]'" || true
+        train_run "pkill -9 -f 'step[23]_train_[d]spark'; pkill -9 -f 'speculators.trai[n]'; pkill -9 -f 'torchru[n]'" || true
         sleep 3
     fi
     echo "training stopped (last step: $(train_step))"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 启动前硬性校验所有推理节点 NPU 空闲。
-# Usage: bash 02_start_vllm.sh
+# Usage: bash 02_start_vllm_instances.sh
 set -uo pipefail
 cd "$(dirname "$0")"
 # shellcheck disable=SC1091

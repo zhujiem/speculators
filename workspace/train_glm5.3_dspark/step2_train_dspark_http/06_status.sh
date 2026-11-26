@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 03_status.sh -- 全景状态: 推理服务 / LB / HTTP server / 训练 / NPU / 内存。
-# Usage: bash 03_status.sh
+# 06_status.sh -- 全景状态: 推理服务 / LB / HTTP server / 训练 / NPU / 内存。
+# Usage: bash 06_status.sh
 set -uo pipefail
 cd "$(dirname "$0")"
 # shellcheck disable=SC1091
@@ -30,10 +30,11 @@ if curl -sf --max-time 4 "http://${LB_IP}:${LB_PORT}/v1/models" >/dev/null 2>&1;
     echo "  http://${LB_IP}:${LB_PORT} READY (backends: $(lb_backend_list))"
 else
     echo "  http://${LB_IP}:${LB_PORT} DOWN"
+
 fi
 
-# --- LB full stats (from openresty.log latest stats line) ---
-lb_stats=$(grep "stats " "/mnt/cephfs/hw/zhujieming/spectrain/step2_launch_vllm_2nodes_http/logs/openresty.log" 2>/dev/null | grep "10.100.1.58:8008" | tail -1)
+# --- LB full stats (from openresty.log) ---
+lb_stats=$(grep "stats " "$LOG_DIR/openresty.log" 2>/dev/null | grep "10.100.1.58:8008" | tail -1)
 if [ -n "$lb_stats" ]; then
     echo "  served:      $(echo "$lb_stats" | grep -oE "[0-9.]+:8008:[0-9]+/[0-9]+" | tr '\n' ' ')"
     echo "  inflight:    $(echo "$lb_stats" | grep -oE "inflight=\[[^]]*\]")"
@@ -52,7 +53,7 @@ fi
 
 # --- HTTP server ---------------------------------------------------------------
 line; echo "[http]"
-if remote "${HTTP_SERVER_IP}" "timeout 2 bash -c '</dev/tcp/${HTTP_SERVER_IP}/${HTTP_SERVER_PORT}'" 2>/dev/null; then
+if timeout 2 bash -c "</dev/tcp/${HTTP_SERVER_IP}/${HTTP_SERVER_PORT}" 2>/dev/null; then
     echo "  server ${HTTP_SERVER_IP}:${HTTP_SERVER_PORT} reachable"
 else
     echo "  server ${HTTP_SERVER_IP}:${HTTP_SERVER_PORT} NOT reachable"

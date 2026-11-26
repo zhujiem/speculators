@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 01_start_http_server.sh -- 启动 HTTP key-value server (hs_http_server.py)。
-# vllm 与训练的隐状态传输都依赖此服务, 必须在 02_start_vllm_services 之前运行。
+# vllm 与训练的隐状态传输都依赖此服务, 必须在 02_start_vllm_instances 之前运行。
 # 幂等: 已在监听则跳过。
 # Usage: bash 01_start_http_server.sh
 set -uo pipefail

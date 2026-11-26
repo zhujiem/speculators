@@ -1,5 +1,5 @@
 #!/bin/bash
-# launch_vllm_glm5.3.sh -- 单节点 vllm 抽取服务启动器 (由 02_start_vllm_services.sh 在各推理
+# launch_vllm_glm5.3.sh -- 单节点 vllm 抽取服务启动器 (由 02_start_vllm_instances.sh 在各推理
 # 节点容器内调用; hidden-states 走 HTTP backend)
 # usage: bash launch_vllm_glm5.3.sh <http_server_ip>
 set -u
